@@ -1,0 +1,1939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional Invoice Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .invoice-shadow { box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        @media print {
+            /* Hide all unwanted elements */
+            .no-print { display: none !important; }
+            .bg-white.border.border-gray-200.rounded-lg.p-3.mb-6 { display: none !important; }
+            #customerSelect { display: none !important; }
+            label[for="customerSelect"] { display: none !important; }
+            .bg-blue-600, .bg-green-600, .bg-gray-600 { display: none !important; }
+            button { display: none !important; }
+            select { display: none !important; }
+            input { display: none !important; }
+            .remove-item { display: none !important; }
+            
+            /* Clean up the layout */
+            .invoice-container { box-shadow: none !important; margin: 0 !important; }
+            body { 
+                background: white !important; 
+                padding: 0 !important; 
+                margin: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+            .max-w-4xl { 
+                max-width: none !important; 
+                margin: 0 !important; 
+                padding: 20px !important; 
+                width: 100% !important;
+            }
+            .bg-gray-50, .bg-white { background: white !important; }
+            .rounded-xl, .rounded-lg { border-radius: 0 !important; }
+            .invoice-shadow { box-shadow: none !important; }
+            .border, .border-gray-200, .border-gray-300 { border: 1px solid #000 !important; }
+            .text-gray-600, .text-gray-700, .text-gray-800, .text-gray-900 { color: #000 !important; }
+            
+            /* Show only selected product names and quantities */
+            .product-select { display: none !important; }
+            .quantity-input { display: none !important; }
+            .product-name-print { display: block !important; }
+            .quantity-print { display: block !important; }
+            
+            /* Hide delivery input in print, show display */
+            #deliveryCharges { display: none !important; }
+            #deliveryDisplay { display: inline !important; }
+            
+            /* Table styling for print */
+            table { 
+                border-collapse: collapse !important; 
+                width: 100% !important;
+                margin: 0 !important;
+            }
+            th, td { 
+                border: 1px solid #000 !important; 
+                padding: 8px !important; 
+                color: #000 !important;
+            }
+            .border-b-2 { border-bottom: 2px solid #000 !important; }
+            .border-t-2 { border-top: 2px solid #000 !important; }
+            .bg-gray-100 { background: white !important; }
+            
+            /* Ensure text is visible */
+            * { 
+                -webkit-print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen py-8">
+    <div class="max-w-4xl mx-auto px-4">
+        <!-- Connection Status -->
+        <div class="bg-white border border-gray-200 rounded-lg p-3 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div id="connectionDot" class="w-3 h-3 rounded-full bg-yellow-500 mr-3"></div>
+                    <span class="text-gray-700 text-sm">Customer Database</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="retryConnection" class="text-blue-600 hover:text-blue-800 text-sm underline hidden">Retry</button>
+                    <button id="refreshCustomers" class="text-gray-600 hover:text-gray-800 text-sm underline hidden">Refresh</button>
+                    <button id="toggleDebug" class="text-gray-400 hover:text-gray-600 text-xs">Debug</button>
+                </div>
+            </div>
+            <div id="debugInfo" class="mt-3 text-xs text-gray-500 bg-gray-50 p-3 rounded hidden">
+                <div>Debug info will appear here...</div>
+            </div>
+        </div>
+
+        <!-- Invoice Form -->
+        <div class="bg-white rounded-xl invoice-shadow p-8 mb-6">
+            <div class="flex justify-between items-start mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">INVOICE</h1>
+                    <div class="mt-4 space-y-2">
+                        <div class="flex items-center">
+                            <span class="text-gray-600 w-24">Invoice #:</span>
+                            <span id="invoiceNumber" class="font-semibold text-gray-900">INV-001</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="text-gray-600 w-24">Date:</span>
+                            <span id="invoiceDate" class="font-semibold text-gray-900"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <h2 class="text-xl font-bold text-gray-900">MYBEV SDN BHD</h2>
+                    <p class="text-gray-600 text-sm mt-2">(1630392-K)</p>
+                    <p class="text-gray-600 mt-2">30-3 Soho Binjai 8, Jalan Binjai<br>50450 Kuala Lumpur, Malaysia<br>Phone: +60176584268<br>Email: kolaku.my@gmail.com</p>
+                </div>
+            </div>
+
+            <!-- Customer Selection -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div class="no-print">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Customer:</label>
+                    <select id="customerSelect" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Loading customers...</option>
+                    </select>
+                </div>
+                <div id="customerDetails" class="hidden">
+                    <h3 class="text-sm font-medium text-gray-700 mb-2">Bill To:</h3>
+                    <div id="customerInfo" class="text-gray-900"></div>
+                </div>
+            </div>
+
+            <!-- Products Section -->
+            <div class="mb-8">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Invoice Items</h3>
+                    <button id="addItemBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                        Add Item
+                    </button>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b-2 border-gray-200">
+                                <th class="text-left py-3 px-2 font-semibold text-gray-700">Product</th>
+                                <th class="text-center py-3 px-2 font-semibold text-gray-700">Qty (Cartons)</th>
+                                <th class="text-right py-3 px-2 font-semibold text-gray-700">Unit Price</th>
+                                <th class="text-right py-3 px-2 font-semibold text-gray-700">Total</th>
+                                <th class="w-12"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="invoiceItems">
+                            <!-- Items will be added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Totals -->
+            <div class="flex justify-end mb-8">
+                <div class="w-80">
+                    <div class="space-y-2">
+                        <div class="flex justify-between py-2">
+                            <span class="text-gray-600">Subtotal:</span>
+                            <span id="subtotal" class="font-semibold">RM 0.00</span>
+                        </div>
+                        <div class="flex justify-between py-2">
+                            <span class="text-gray-600">Tax (10%):</span>
+                            <span id="tax" class="font-semibold">RM 0.00</span>
+                        </div>
+                        <div class="flex justify-between py-2">
+                            <span class="text-gray-600">Delivery Charges:</span>
+                            <div class="flex items-center">
+                                <span class="text-gray-600 mr-2">RM</span>
+                                <input type="number" id="deliveryCharges" class="w-20 px-2 py-1 border border-gray-300 rounded text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500 no-print" value="0" min="0" step="0.01">
+                                <span id="deliveryDisplay" class="font-semibold hidden">RM 0.00</span>
+                            </div>
+                        </div>
+                        <div class="border-t-2 border-gray-200 pt-2">
+                            <div class="flex justify-between py-2">
+                                <span class="text-lg font-bold text-gray-900">Total:</span>
+                                <span id="total" class="text-lg font-bold text-gray-900">RM 0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-wrap gap-4 no-print">
+                <button id="saveInvoice" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    Save
+                </button>
+                <div id="saveStatus" class="hidden items-center px-4 py-3 bg-green-100 text-green-800 rounded-lg font-medium">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                    </svg>
+                    Saved
+                </div>
+                <div class="flex gap-2">
+                    <button id="printInvoice" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                        📄 Download PDF
+                    </button>
+                    <button id="saveInvoiceToDrive" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                        💾 Save to Drive
+                    </button>
+                </div>
+                <button id="generateWorkOrder" class="bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 rounded-lg font-medium transition-colors hidden">
+                    Generate Work Order
+                </button>
+                <button id="newInvoice" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    New Invoice
+                </button>
+            </div>
+        </div>
+
+        <!-- Work Order Modal -->
+        <div id="workOrderModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-900">Work Order</h2>
+                        <button id="closeWorkOrderModal" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Work Order Content -->
+                    <div id="workOrderContent" class="bg-gray-50 p-6 rounded-lg mb-6">
+                        <!-- Work order details will be populated here -->
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex flex-wrap gap-4">
+                        <button id="emailWorkOrder" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                            📧 Email to Factory
+                        </button>
+                        <button id="whatsappWorkOrder" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                            📱 WhatsApp to Factory
+                        </button>
+                        <button id="copyWorkOrder" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                            📋 Copy Text
+                        </button>
+                        <div class="flex gap-2">
+                            <button id="printWorkOrder" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                📄 Download PDF
+                            </button>
+                            <button id="saveWorkOrderToDrive" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                                💾 Save to Drive
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Factory Response Section -->
+                    <div class="mt-8 border-t pt-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Factory Response (Demo)</h3>
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <p class="text-sm text-yellow-800 mb-3">
+                                <strong>Note:</strong> This is a demo interface. In a real system, the factory would respond via email or WhatsApp with delivery confirmation.
+                            </p>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Acknowledgment Status:</label>
+                                    <select id="factoryAck" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="pending">Pending Response</option>
+                                        <option value="acknowledged">Acknowledged</option>
+                                        <option value="in-production">In Production</option>
+                                        <option value="ready">Ready for Delivery</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Promised Delivery Date:</label>
+                                    <input type="date" id="deliveryDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Factory Notes:</label>
+                                    <textarea id="factoryNotes" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Any special notes from factory..."></textarea>
+                                </div>
+                                <button id="updateFactoryResponse" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                    Update Response
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Google Sheets Integration
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyEV4Zes2AhyU-fDLIqtZJ2V4sBoOkely42zxfgfAOUpGINuDvbWbwGbMIGvvNTLoA/exec';
+        let isConnectedToSheets = false;
+        let customers = {};
+
+        // Debug function
+        function addDebugInfo(message) {
+            const debugInfo = document.getElementById('debugInfo');
+            const timestamp = new Date().toLocaleTimeString();
+            debugInfo.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        // Load customers from Google Sheets
+        async function loadCustomersFromSheets() {
+            const connectionDot = document.getElementById('connectionDot');
+            const retryButton = document.getElementById('retryConnection');
+            
+            connectionDot.className = 'w-3 h-3 rounded-full bg-yellow-500 mr-3';
+            retryButton.classList.add('hidden');
+            
+            addDebugInfo('Starting Google Sheets connection...');
+            addDebugInfo(`URL: ${GOOGLE_SCRIPT_URL}`);
+            
+            try {
+                addDebugInfo('Making fetch request...');
+                const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getCustomers`, {
+                    method: 'GET',
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                addDebugInfo(`Response status: ${response.status}`);
+                addDebugInfo(`Response ok: ${response.ok}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const textResponse = await response.text();
+                addDebugInfo(`Raw response length: ${textResponse.length} characters`);
+                addDebugInfo(`Raw response preview: ${textResponse.substring(0, 200)}...`);
+                
+                let data;
+                try {
+                    data = JSON.parse(textResponse);
+                    addDebugInfo('Successfully parsed JSON response');
+                } catch (parseError) {
+                    addDebugInfo(`JSON parse error: ${parseError.message}`);
+                    throw new Error(`Invalid JSON response: ${parseError.message}`);
+                }
+                
+                addDebugInfo(`Data success: ${data.success}`);
+                addDebugInfo(`Data keys: ${Object.keys(data)}`);
+                
+                if (data.success && data.data) {
+                    customers = data.data;
+                    isConnectedToSheets = true;
+                    connectionDot.className = 'w-3 h-3 rounded-full bg-green-500 mr-3';
+                    document.getElementById('refreshCustomers').classList.remove('hidden');
+                    populateCustomerDropdown();
+                    addDebugInfo(`Successfully loaded ${Object.keys(customers).length} customers`);
+                } else {
+                    throw new Error(data.error || 'No customer data returned');
+                }
+            } catch (error) {
+                addDebugInfo(`Connection failed: ${error.message}`);
+                connectionDot.className = 'w-3 h-3 rounded-full bg-red-500 mr-3';
+                retryButton.classList.remove('hidden');
+                loadDemoCustomers();
+            }
+        }
+
+        // Load demo customers as fallback
+        function loadDemoCustomers() {
+            addDebugInfo('Loading demo customers as fallback...');
+            customers = {
+                'customer-a': {
+                    name: 'ABC Trading Sdn Bhd',
+                    address: '123 Jalan Perdagangan\n47100 Puchong, Selangor',
+                    contactPerson: 'Ahmad bin Ali',
+                    phone: '+60123456789',
+                    email: 'ahmad@abctrading.com.my',
+                    pricing: {
+                        'kolaku-classic': 38.00,
+                        'kolaku-zero': 38.00,
+                        'kolaku-lightning': 38.00,
+                        'twistea': 48.00
+                    }
+                },
+                'customer-b': {
+                    name: 'XYZ Mart Sdn Bhd',
+                    address: '456 Jalan Raya\n50100 Kuala Lumpur',
+                    contactPerson: 'Siti Nurhaliza',
+                    phone: '+60198765432',
+                    email: 'siti@xyzmart.com.my',
+                    pricing: {
+                        'kolaku-classic': 35.00,
+                        'kolaku-zero': 35.00,
+                        'kolaku-lightning': 35.00,
+                        'twistea': 45.00
+                    }
+                }
+            };
+            populateCustomerDropdown();
+            addDebugInfo(`Loaded ${Object.keys(customers).length} demo customers`);
+        }
+
+        // Populate customer dropdown
+        function populateCustomerDropdown() {
+            const select = document.getElementById('customerSelect');
+            select.innerHTML = '<option value="">Choose a customer...</option>';
+            
+            Object.entries(customers).forEach(([id, customer]) => {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = customer.name;
+                select.appendChild(option);
+            });
+            
+            addDebugInfo('Customer dropdown populated');
+        }
+
+        // KolaKu Products
+        const products = {
+            'kolaku-classic': 'KolaKu Classic Cola 320ml',
+            'kolaku-zero': 'KolaKu Zero Cola 320ml',
+            'kolaku-lightning': 'KolaKu Lightning Lemon 320ml',
+            'twistea': 'TwisTea 320ml'
+        };
+
+        // Invoice state
+        let currentInvoiceNumber = 1;
+        let savedInvoices = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addDebugInfo('Page loaded, initializing...');
+            setCurrentDate();
+            updateInvoiceNumber();
+            loadCustomersFromSheets();
+            
+            // Delivery charges event listener
+            document.getElementById('deliveryCharges').addEventListener('input', function() {
+                calculateTotals();
+                updateDeliveryDisplay();
+            });
+            
+            // Retry button
+            document.getElementById('retryConnection').addEventListener('click', loadCustomersFromSheets);
+            
+            // Refresh customers button
+            document.getElementById('refreshCustomers').addEventListener('click', function() {
+                addDebugInfo('Manually refreshing customer list...');
+                loadCustomersFromSheets();
+            });
+            
+            // PDF buttons
+            document.getElementById('printInvoice').addEventListener('click', async function() {
+                // Ensure we have content to generate PDF
+                const customerId = document.getElementById('customerSelect').value;
+                const items = document.querySelectorAll('#invoiceItems tr');
+                
+                if (!customerId) {
+                    alert('Please select a customer before generating PDF.');
+                    return;
+                }
+                
+                if (items.length === 0) {
+                    alert('Please add at least one item before generating PDF.');
+                    return;
+                }
+                
+                // Generate PDF for download
+                await generatePDF(false);
+            });
+            
+            document.getElementById('saveInvoiceToDrive').addEventListener('click', async function() {
+                // Ensure we have content to generate PDF
+                const customerId = document.getElementById('customerSelect').value;
+                const items = document.querySelectorAll('#invoiceItems tr');
+                
+                if (!customerId) {
+                    alert('Please select a customer before generating PDF.');
+                    return;
+                }
+                
+                if (items.length === 0) {
+                    alert('Please add at least one item before generating PDF.');
+                    return;
+                }
+                
+                // Generate PDF and save to Google Drive
+                await generatePDF(true);
+            });
+            
+            // Debug toggle button
+            document.getElementById('toggleDebug').addEventListener('click', function() {
+                const debugInfo = document.getElementById('debugInfo');
+                debugInfo.classList.toggle('hidden');
+            });
+            
+            // Load saved data from localStorage
+            const saved = localStorage.getItem('invoiceData');
+            if (saved) {
+                const data = JSON.parse(saved);
+                currentInvoiceNumber = data.nextInvoiceNumber || 1;
+                savedInvoices = data.savedInvoices || [];
+                updateInvoiceNumber();
+            }
+        });
+
+        function setCurrentDate() {
+            const today = new Date();
+            const formattedDate = today.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            document.getElementById('invoiceDate').textContent = formattedDate;
+        }
+
+        function updateInvoiceNumber() {
+            const paddedNumber = String(currentInvoiceNumber).padStart(6, '0');
+            document.getElementById('invoiceNumber').textContent = `INV-${paddedNumber}`;
+        }
+
+        function updateDeliveryDisplay() {
+            const deliveryCharges = parseFloat(document.getElementById('deliveryCharges').value) || 0;
+            document.getElementById('deliveryDisplay').textContent = `RM ${deliveryCharges.toFixed(2)}`;
+        }
+
+        // Customer selection handler
+        document.getElementById('customerSelect').addEventListener('change', function() {
+            const customerId = this.value;
+            const customerDetails = document.getElementById('customerDetails');
+            const customerInfo = document.getElementById('customerInfo');
+            
+            if (customerId && customers[customerId]) {
+                const customer = customers[customerId];
+                customerInfo.innerHTML = `
+                    <div class="font-semibold">${customer.name}</div>
+                    <div class="text-sm text-gray-600 mt-1 whitespace-pre-line">${customer.address}</div>
+                    <div class="text-sm text-gray-600 mt-2">
+                        <div><strong>Contact Person:</strong> ${customer.contactPerson}</div>
+                        <div><strong>Phone:</strong> ${customer.phone}</div>
+                        <div><strong>Email:</strong> ${customer.email}</div>
+                    </div>
+                `;
+                customerDetails.classList.remove('hidden');
+                updateItemPricing();
+                addDebugInfo(`Selected customer: ${customer.name}`);
+            } else {
+                customerDetails.classList.add('hidden');
+            }
+        });
+
+        // Add item functionality
+        document.getElementById('addItemBtn').addEventListener('click', addInvoiceItem);
+
+        function addInvoiceItem() {
+            const customerId = document.getElementById('customerSelect').value;
+            if (!customerId) {
+                alert('Please select a customer first to see pricing.');
+                return;
+            }
+
+            const itemId = 'item_' + Date.now();
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-100';
+            row.id = itemId;
+            
+            row.innerHTML = `
+                <td class="py-3 px-2">
+                    <select class="product-select w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Select product...</option>
+                        ${Object.entries(products).map(([key, name]) => 
+                            `<option value="${key}">${name}</option>`
+                        ).join('')}
+                    </select>
+                    <span class="product-name-print hidden font-medium"></span>
+                </td>
+                <td class="py-3 px-2 text-center">
+                    <input type="number" class="quantity-input w-20 px-3 py-2 border border-gray-300 rounded text-center focus:ring-2 focus:ring-blue-500 focus:border-blue-500" value="1" min="1">
+                    <span class="quantity-print hidden font-medium"></span>
+                </td>
+                <td class="py-3 px-2 text-right">
+                    <span class="unit-price font-medium">RM 0.00</span>
+                </td>
+                <td class="py-3 px-2 text-right">
+                    <span class="line-total font-semibold">RM 0.00</span>
+                </td>
+                <td class="py-3 px-2 text-center">
+                    <button class="remove-item text-red-500 hover:text-red-700 p-1" onclick="removeItem('${itemId}')">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                </td>
+            `;
+
+            document.getElementById('invoiceItems').appendChild(row);
+
+            // Add event listeners
+            const productSelect = row.querySelector('.product-select');
+            const quantityInput = row.querySelector('.quantity-input');
+            
+            productSelect.addEventListener('change', function() {
+                updateItemPricing();
+                calculateTotals();
+                updatePrintDisplay(row);
+            });
+            
+            quantityInput.addEventListener('input', function() {
+                calculateTotals();
+                updatePrintDisplay(row);
+            });
+        }
+
+        function removeItem(itemId) {
+            document.getElementById(itemId).remove();
+            calculateTotals();
+        }
+
+        function updatePrintDisplay(row) {
+            const productSelect = row.querySelector('.product-select');
+            const quantityInput = row.querySelector('.quantity-input');
+            const productNamePrint = row.querySelector('.product-name-print');
+            const quantityPrint = row.querySelector('.quantity-print');
+            
+            if (productSelect && productSelect.value && products[productSelect.value]) {
+                productNamePrint.textContent = products[productSelect.value];
+            } else {
+                productNamePrint.textContent = '';
+            }
+            
+            if (quantityInput) {
+                quantityPrint.textContent = quantityInput.value;
+            }
+        }
+
+        function updateItemPricing() {
+            const customerId = document.getElementById('customerSelect').value;
+            if (!customerId || !customers[customerId]) return;
+
+            const customer = customers[customerId];
+            const rows = document.querySelectorAll('#invoiceItems tr');
+            
+            rows.forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const unitPriceSpan = row.querySelector('.unit-price');
+                
+                if (productSelect && productSelect.value && customer.pricing[productSelect.value]) {
+                    const price = customer.pricing[productSelect.value];
+                    unitPriceSpan.textContent = `RM ${price.toFixed(2)}`;
+                }
+            });
+            
+            calculateTotals();
+        }
+
+        function calculateTotals() {
+            const rows = document.querySelectorAll('#invoiceItems tr');
+            let subtotal = 0;
+            
+            rows.forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                const unitPriceSpan = row.querySelector('.unit-price');
+                const lineTotalSpan = row.querySelector('.line-total');
+                
+                if (productSelect && productSelect.value && quantityInput && unitPriceSpan) {
+                    const unitPrice = parseFloat(unitPriceSpan.textContent.replace('RM ', ''));
+                    const quantity = parseInt(quantityInput.value) || 0;
+                    const lineTotal = unitPrice * quantity;
+                    
+                    lineTotalSpan.textContent = `RM ${lineTotal.toFixed(2)}`;
+                    subtotal += lineTotal;
+                }
+            });
+            
+            const deliveryCharges = parseFloat(document.getElementById('deliveryCharges').value) || 0;
+            const tax = subtotal * 0.1; // Tax only on subtotal, not delivery
+            const total = subtotal + tax + deliveryCharges;
+            
+            document.getElementById('subtotal').textContent = `RM ${subtotal.toFixed(2)}`;
+            document.getElementById('tax').textContent = `RM ${tax.toFixed(2)}`;
+            document.getElementById('total').textContent = `RM ${total.toFixed(2)}`;
+            
+            updateDeliveryDisplay();
+        }
+
+        // Save invoice to Google Sheets
+        async function saveInvoiceToSheets(invoiceData) {
+            addDebugInfo('Attempting to save invoice to Google Sheets...');
+            
+            try {
+                const params = new URLSearchParams({
+                    action: 'saveInvoice',
+                    ...invoiceData
+                });
+                
+                const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params}`, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                const textResponse = await response.text();
+                const data = JSON.parse(textResponse);
+                
+                if (data.success) {
+                    addDebugInfo('Invoice saved successfully to Google Sheets');
+                    return true;
+                } else {
+                    addDebugInfo(`Save failed: ${data.error}`);
+                    return false;
+                }
+            } catch (error) {
+                addDebugInfo(`Save error: ${error.message}`);
+                return false;
+            }
+        }
+
+        // Calculate individual product quantities
+        function calculateProductQuantities() {
+            const quantities = {
+                classic: 0,
+                zero: 0,
+                lemon: 0,
+                twistea: 0
+            };
+            
+            addDebugInfo('Calculating product quantities...');
+            
+            document.querySelectorAll('#invoiceItems tr').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                
+                if (productSelect && productSelect.value && quantityInput) {
+                    const quantity = parseInt(quantityInput.value) || 0;
+                    const productType = productSelect.value;
+                    
+                    addDebugInfo(`Found item: ${productType} x ${quantity}`);
+                    
+                    switch(productType) {
+                        case 'kolaku-classic':
+                            quantities.classic += quantity;
+                            break;
+                        case 'kolaku-zero':
+                            quantities.zero += quantity;
+                            break;
+                        case 'kolaku-lightning':
+                            quantities.lemon += quantity;
+                            break;
+                        case 'twistea':
+                            quantities.twistea += quantity;
+                            break;
+                    }
+                }
+            });
+            
+            addDebugInfo(`Final quantities - Classic: ${quantities.classic}, Zero: ${quantities.zero}, Lemon: ${quantities.lemon}, TwisTea: ${quantities.twistea}`);
+            return quantities;
+        }
+
+        // Save invoice
+        document.getElementById('saveInvoice').addEventListener('click', async function() {
+            const customerId = document.getElementById('customerSelect').value;
+            const customerName = customerId ? customers[customerId].name : '';
+            const total = document.getElementById('total').textContent;
+            const subtotal = document.getElementById('subtotal').textContent;
+            const tax = document.getElementById('tax').textContent;
+            const deliveryCharges = document.getElementById('deliveryCharges').value;
+            const invoiceNumber = document.getElementById('invoiceNumber').textContent;
+            const date = document.getElementById('invoiceDate').textContent;
+            const saveButton = document.getElementById('saveInvoice');
+            const saveStatus = document.getElementById('saveStatus');
+            
+            if (!customerId) {
+                alert('Please select a customer before saving.');
+                return;
+            }
+            
+            if (document.querySelectorAll('#invoiceItems tr').length === 0) {
+                alert('Please add at least one item before saving.');
+                return;
+            }
+            
+            // Show saving state
+            saveButton.disabled = true;
+            saveButton.textContent = 'Saving...';
+            saveStatus.classList.add('hidden');
+            
+            // Collect items detail
+            const items = [];
+            document.querySelectorAll('#invoiceItems tr').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                const unitPriceSpan = row.querySelector('.unit-price');
+                
+                if (productSelect && productSelect.value) {
+                    items.push(`${products[productSelect.value]} x${quantityInput.value} @ ${unitPriceSpan.textContent}`);
+                }
+            });
+            
+            // Calculate individual product quantities
+            const productQuantities = calculateProductQuantities();
+            
+            const invoiceData = {
+                invoice_number: invoiceNumber,
+                date: date,
+                customer_name: customerName,
+                customer_id: customerId,
+                items_detail: items.join('; '),
+                subtotal: subtotal.replace('RM ', ''),
+                delivery_charges: deliveryCharges,
+                tax: tax.replace('RM ', ''),
+                total: total.replace('RM ', ''),
+                classic: productQuantities.classic,
+                zero: productQuantities.zero,
+                lemon: productQuantities.lemon,
+                twistea: productQuantities.twistea
+            };
+            
+            addDebugInfo('Invoice data being sent to Google Sheets:');
+            addDebugInfo(`- Invoice Number: ${invoiceData.invoice_number}`);
+            addDebugInfo(`- Customer: ${invoiceData.customer_name}`);
+            addDebugInfo(`- Items Detail: ${invoiceData.items_detail}`);
+            addDebugInfo(`- Delivery Charges: ${invoiceData.delivery_charges}`);
+            addDebugInfo(`- Classic Qty: ${invoiceData.classic}`);
+            addDebugInfo(`- Zero Qty: ${invoiceData.zero}`);
+            addDebugInfo(`- Lemon Qty: ${invoiceData.lemon}`);
+            addDebugInfo(`- TwisTea Qty: ${invoiceData.twistea}`);
+            addDebugInfo(`- Total: ${invoiceData.total}`);
+            
+            let saved = false;
+            if (isConnectedToSheets) {
+                saved = await saveInvoiceToSheets(invoiceData);
+            }
+            
+            // Reset button state
+            saveButton.disabled = false;
+            saveButton.textContent = 'Save';
+            
+            if (saved) {
+                // Show "Saved" status only if successfully saved to Google Sheets
+                saveStatus.classList.remove('hidden');
+                saveStatus.classList.add('flex');
+                
+                // Hide the status after 3 seconds
+                setTimeout(() => {
+                    saveStatus.classList.add('hidden');
+                    saveStatus.classList.remove('flex');
+                }, 3000);
+                
+                addDebugInfo('Invoice saved successfully to Google Sheets');
+                
+                // Show work order button after successful save
+                document.getElementById('generateWorkOrder').classList.remove('hidden');
+            } else {
+                alert('Could not save to Google Sheets. Please check your connection and try again.');
+                return; // Don't increment invoice number if save failed
+            }
+            
+            // Save locally as backup and increment invoice number only if Google Sheets save was successful
+            savedInvoices.push({
+                number: invoiceNumber,
+                date: date,
+                customer: customerName,
+                total: total
+            });
+            
+            // Increment the invoice number after successful save
+            currentInvoiceNumber++;
+            
+            localStorage.setItem('invoiceData', JSON.stringify({
+                nextInvoiceNumber: currentInvoiceNumber,
+                savedInvoices: savedInvoices
+            }));
+            
+            // Update the display with the new invoice number
+            updateInvoiceNumber();
+        });
+
+        // Generate PDF function
+        async function generatePDF(saveToGoogleDrive = false) {
+            try {
+                addDebugInfo('Starting PDF generation...');
+                
+                // Check if jsPDF is loaded
+                if (typeof window.jspdf === 'undefined') {
+                    addDebugInfo('jsPDF not found, attempting to load...');
+                    throw new Error('jsPDF library not loaded - please refresh the page');
+                }
+                
+                // Check if html2canvas is loaded
+                if (typeof html2canvas === 'undefined') {
+                    addDebugInfo('html2canvas not found, attempting to load...');
+                    throw new Error('html2canvas library not loaded - please refresh the page');
+                }
+                
+                addDebugInfo('Both PDF libraries are loaded successfully');
+                
+                // Hide all buttons and form elements temporarily
+                const elementsToHide = document.querySelectorAll('.no-print, button, select, input, .bg-white.border.border-gray-200.rounded-lg.p-3.mb-6');
+                addDebugInfo(`Hiding ${elementsToHide.length} elements for PDF generation`);
+                
+                elementsToHide.forEach(el => {
+                    el.style.display = 'none';
+                });
+                
+                // Show print-friendly content
+                const printElements = document.querySelectorAll('.product-name-print, .quantity-print');
+                printElements.forEach(el => {
+                    el.style.display = 'block';
+                });
+                
+                // Show delivery display for print
+                document.getElementById('deliveryDisplay').style.display = 'inline';
+                
+                // Get the invoice container
+                const invoiceElement = document.querySelector('.bg-white.rounded-xl.invoice-shadow');
+                if (!invoiceElement) {
+                    throw new Error('Invoice element not found');
+                }
+                
+                addDebugInfo('Generating canvas from invoice element...');
+                
+                // Wait a moment for elements to hide/show
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Generate canvas with optimized settings for smaller file size
+                const canvas = await html2canvas(invoiceElement, {
+                    scale: 1.5, // Reduced from 2 to 1.5 for smaller file size
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    width: invoiceElement.offsetWidth,
+                    height: invoiceElement.offsetHeight,
+                    logging: false,
+                    allowTaint: true,
+                    foreignObjectRendering: true,
+                    removeContainer: true
+                });
+                
+                addDebugInfo(`Canvas generated: ${canvas.width}x${canvas.height}`);
+                
+                // Create PDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                
+                // Calculate dimensions to fit A4
+                const imgWidth = 210; // A4 width in mm
+                const pageHeight = 297; // A4 height in mm
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                addDebugInfo(`PDF dimensions: ${imgWidth}x${imgHeight}mm`);
+                
+                // Compress image for smaller file size
+                const imgData = canvas.toDataURL('image/jpeg', 0.8); // Use JPEG with 80% quality instead of PNG
+                addDebugInfo(`Compressed image data length: ${imgData.length} characters`);
+                
+                pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight);
+                
+                // Generate filename
+                const invoiceNumber = document.getElementById('invoiceNumber').textContent;
+                const customerSelect = document.getElementById('customerSelect');
+                const customerName = customerSelect.selectedOptions[0]?.textContent || 'Customer';
+                const cleanCustomerName = customerName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+                const filename = `${invoiceNumber}_${cleanCustomerName}.pdf`;
+                
+                addDebugInfo(`Generated filename: ${filename}`);
+                
+                if (saveToGoogleDrive) {
+                    // Get PDF as base64 for Google Drive upload
+                    const pdfBase64 = pdf.output('datauristring').split(',')[1];
+                    addDebugInfo(`PDF base64 length: ${pdfBase64.length} characters`);
+                    
+                    // Save to Google Drive
+                    addDebugInfo('Attempting to save PDF to Google Drive...');
+                    const driveResult = await savePDFToGoogleDrive(filename, pdfBase64, 'invoice');
+                    
+                    if (driveResult.success) {
+                        addDebugInfo(`PDF saved to Google Drive: ${driveResult.fileId}`);
+                        alert(`PDF saved to Google Drive successfully!\nFile ID: ${driveResult.fileId}`);
+                    } else {
+                        addDebugInfo(`Google Drive save failed: ${driveResult.error}`);
+                        alert(`Could not save to Google Drive: ${driveResult.error}\nDownloading locally instead.`);
+                        
+                        // Force download as fallback
+                        await forceDownloadPDF(pdf, filename);
+                    }
+                } else {
+                    // Download PDF locally with enhanced methods
+                    addDebugInfo('Attempting PDF download...');
+                    await forceDownloadPDF(pdf, filename);
+                    addDebugInfo('PDF download initiated successfully');
+                }
+                
+                // Restore original display
+                elementsToHide.forEach(el => {
+                    el.style.display = '';
+                });
+                
+                printElements.forEach(el => {
+                    el.style.display = 'none';
+                });
+                
+                document.getElementById('deliveryDisplay').style.display = 'none';
+                
+                addDebugInfo('PDF generation completed successfully');
+                return { success: true, filename };
+                
+            } catch (error) {
+                addDebugInfo(`PDF generation error: ${error.message}`);
+                console.error('Error generating PDF:', error);
+                
+                // Show detailed error message
+                alert(`PDF Generation Failed: ${error.message}\n\nTroubleshooting:\n1. Try refreshing the page\n2. Check if you have a popup blocker enabled\n3. Try using a different browser\n4. Check the debug info for more details`);
+                
+                // Restore display in case of error
+                const elementsToShow = document.querySelectorAll('.no-print, button, select, input');
+                elementsToShow.forEach(el => {
+                    el.style.display = '';
+                });
+                
+                const printElements = document.querySelectorAll('.product-name-print, .quantity-print');
+                printElements.forEach(el => {
+                    el.style.display = 'none';
+                });
+                
+                document.getElementById('deliveryDisplay').style.display = 'none';
+                
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Enhanced PDF download function with multiple fallback methods
+        async function forceDownloadPDF(pdf, filename) {
+            const methods = [
+                {
+                    name: 'Standard jsPDF save',
+                    action: () => pdf.save(filename)
+                },
+                {
+                    name: 'Blob download with click',
+                    action: () => {
+                        const blob = pdf.output('blob');
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => {
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }, 100);
+                    }
+                },
+                {
+                    name: 'Force blob download',
+                    action: () => {
+                        const blob = pdf.output('blob');
+                        const url = URL.createObjectURL(blob);
+                        
+                        // Try multiple approaches
+                        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+                            // IE/Edge
+                            window.navigator.msSaveOrOpenBlob(blob, filename);
+                        } else {
+                            // Modern browsers
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            a.target = '_blank';
+                            a.rel = 'noopener';
+                            
+                            // Ensure the link is in the DOM
+                            document.body.appendChild(a);
+                            
+                            // Create and dispatch click event
+                            const clickEvent = new MouseEvent('click', {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true
+                            });
+                            a.dispatchEvent(clickEvent);
+                            
+                            // Clean up
+                            setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                            }, 100);
+                        }
+                    }
+                },
+                {
+                    name: 'Data URI download',
+                    action: () => {
+                        const dataUri = pdf.output('datauristring');
+                        const a = document.createElement('a');
+                        a.href = dataUri;
+                        a.download = filename;
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        
+                        // Force click
+                        const event = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        a.dispatchEvent(event);
+                        
+                        setTimeout(() => {
+                            document.body.removeChild(a);
+                        }, 100);
+                    }
+                },
+                {
+                    name: 'Window open method',
+                    action: () => {
+                        const blob = pdf.output('blob');
+                        const url = URL.createObjectURL(blob);
+                        const newWindow = window.open(url, '_blank');
+                        
+                        if (newWindow) {
+                            // Set a timeout to close the window and clean up
+                            setTimeout(() => {
+                                URL.revokeObjectURL(url);
+                            }, 1000);
+                        } else {
+                            throw new Error('Popup blocked');
+                        }
+                    }
+                }
+            ];
+            
+            for (let i = 0; i < methods.length; i++) {
+                try {
+                    addDebugInfo(`Trying download method ${i + 1}: ${methods[i].name}`);
+                    await methods[i].action();
+                    addDebugInfo(`${methods[i].name} succeeded`);
+                    return;
+                } catch (error) {
+                    addDebugInfo(`${methods[i].name} failed: ${error.message}`);
+                    if (i === methods.length - 1) {
+                        throw new Error(`All download methods failed. Last error: ${error.message}`);
+                    }
+                }
+            }
+        }
+
+        // Save PDF to Google Drive
+        async function savePDFToGoogleDrive(filename, pdfBase64, type) {
+            try {
+                addDebugInfo(`Preparing to save PDF to Google Drive: ${filename}`);
+                addDebugInfo(`PDF data length: ${pdfBase64.length} characters`);
+                addDebugInfo(`Type: ${type}`);
+                
+                // Check if we're connected to Google Sheets
+                if (!isConnectedToSheets) {
+                    throw new Error('Not connected to Google Sheets. Cannot save to Google Drive.');
+                }
+                
+                // Validate PDF data
+                if (!pdfBase64 || pdfBase64.length < 1000) {
+                    throw new Error('Invalid PDF data - too small or empty');
+                }
+                
+                // For smaller PDFs (under 100KB), try single upload first
+                if (pdfBase64.length < 100000) {
+                    addDebugInfo('PDF is small enough for single upload, trying direct method...');
+                    try {
+                        return await uploadSinglePDF(filename, pdfBase64, type);
+                    } catch (singleError) {
+                        addDebugInfo(`Single upload failed: ${singleError.message}, trying chunked upload...`);
+                    }
+                }
+                
+                // Use smaller chunk size for better reliability
+                const maxChunkSize = 30000; // 30KB chunks for better reliability
+                const chunks = [];
+                
+                addDebugInfo(`PDF data is large (${pdfBase64.length} chars), splitting into chunks...`);
+                for (let i = 0; i < pdfBase64.length; i += maxChunkSize) {
+                    chunks.push(pdfBase64.substring(i, i + maxChunkSize));
+                }
+                addDebugInfo(`Split into ${chunks.length} chunks`);
+                
+                // Try chunked upload
+                try {
+                    return await uploadChunkedPDF(filename, chunks, type);
+                } catch (chunkedError) {
+                    addDebugInfo(`Chunked upload failed: ${chunkedError.message}`);
+                    
+                    // If chunked upload fails, try single upload as final fallback
+                    addDebugInfo('Trying single upload as final fallback...');
+                    return await uploadSinglePDF(filename, pdfBase64, type);
+                }
+                
+            } catch (error) {
+                addDebugInfo(`Google Drive save error: ${error.message}`);
+                addDebugInfo(`Error stack: ${error.stack}`);
+                
+                // Provide more specific error messages
+                let userMessage = error.message;
+                if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
+                    userMessage = 'Network error or Google Apps Script not responding. Please check your Google Apps Script deployment.';
+                } else if (error.message.includes('JSON')) {
+                    userMessage = 'Server response error - the Google Apps Script may need updating.';
+                } else if (error.message.includes('HTTP error')) {
+                    userMessage = 'Server error - please try again in a few moments.';
+                }
+                
+                return { success: false, error: userMessage, originalError: error.message };
+            }
+        }
+
+        // Single PDF upload
+        async function uploadSinglePDF(filename, pdfBase64, type) {
+            // Try GET method first (simpler for Google Apps Script)
+            try {
+                addDebugInfo('Trying GET method for single PDF upload...');
+                
+                const params = new URLSearchParams({
+                    action: 'savePDF',
+                    filename: filename,
+                    pdfData: pdfBase64,
+                    type: type
+                });
+                
+                const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params}`, {
+                    method: 'GET',
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                addDebugInfo(`GET Response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                }
+                
+                const textResponse = await response.text();
+                addDebugInfo(`GET Response length: ${textResponse.length} characters`);
+                
+                let data;
+                try {
+                    data = JSON.parse(textResponse);
+                    addDebugInfo('Successfully parsed GET response JSON');
+                } catch (parseError) {
+                    addDebugInfo(`GET JSON parse error: ${parseError.message}`);
+                    throw parseError;
+                }
+                
+                addDebugInfo(`GET Result success: ${data.success}`);
+                if (data.success) {
+                    addDebugInfo(`File ID: ${data.fileId || 'No file ID returned'}`);
+                    return data;
+                } else {
+                    addDebugInfo(`GET Error: ${data.error || 'Unknown error'}`);
+                    throw new Error(data.error || 'Unknown error from GET method');
+                }
+                
+            } catch (getError) {
+                addDebugInfo(`GET method failed: ${getError.message}, trying POST...`);
+                
+                // Fallback to POST method
+                const requestData = {
+                    action: 'savePDF',
+                    filename: filename,
+                    pdfData: pdfBase64,
+                    type: type
+                };
+                
+                addDebugInfo('Sending POST PDF upload request...');
+                
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                addDebugInfo(`POST Response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+                }
+                
+                const textResponse = await response.text();
+                addDebugInfo(`POST Response length: ${textResponse.length} characters`);
+                addDebugInfo(`POST Response preview: ${textResponse.substring(0, 300)}...`);
+                
+                let data;
+                try {
+                    data = JSON.parse(textResponse);
+                    addDebugInfo('Successfully parsed POST response JSON');
+                } catch (parseError) {
+                    addDebugInfo(`POST JSON parse error: ${parseError.message}`);
+                    addDebugInfo(`Raw response: ${textResponse}`);
+                    throw new Error(`Invalid JSON response: ${parseError.message}`);
+                }
+                
+                addDebugInfo(`POST Result success: ${data.success}`);
+                if (data.success) {
+                    addDebugInfo(`File ID: ${data.fileId || 'No file ID returned'}`);
+                } else {
+                    addDebugInfo(`POST Error: ${data.error || 'Unknown error'}`);
+                }
+                
+                return data;
+            }
+        }
+
+        // Chunked PDF upload
+        async function uploadChunkedPDF(filename, chunks, type) {
+            try {
+                addDebugInfo(`Starting chunked upload with ${chunks.length} chunks`);
+                
+                // Step 1: Initialize chunked upload
+                const initData = {
+                    action: 'initChunkedUpload',
+                    filename: filename,
+                    totalChunks: chunks.length,
+                    type: type
+                };
+                
+                addDebugInfo('Initializing chunked upload...');
+                const initResponse = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(initData)
+                });
+                
+                if (!initResponse.ok) {
+                    throw new Error(`Init failed: ${initResponse.status}`);
+                }
+                
+                const initResult = JSON.parse(await initResponse.text());
+                if (!initResult.success) {
+                    throw new Error(`Init failed: ${initResult.error}`);
+                }
+                
+                const uploadId = initResult.uploadId;
+                addDebugInfo(`Upload initialized with ID: ${uploadId}`);
+                
+                // Step 2: Upload chunks sequentially
+                for (let i = 0; i < chunks.length; i++) {
+                    addDebugInfo(`Uploading chunk ${i + 1}/${chunks.length}...`);
+                    
+                    const chunkData = {
+                        action: 'uploadChunk',
+                        uploadId: uploadId,
+                        chunkIndex: i,
+                        chunkData: chunks[i],
+                        totalChunks: chunks.length
+                    };
+                    
+                    const chunkResponse = await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'cors',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(chunkData)
+                    });
+                    
+                    if (!chunkResponse.ok) {
+                        throw new Error(`Chunk ${i + 1} upload failed: ${chunkResponse.status}`);
+                    }
+                    
+                    const chunkResult = JSON.parse(await chunkResponse.text());
+                    if (!chunkResult.success) {
+                        throw new Error(`Chunk ${i + 1} failed: ${chunkResult.error}`);
+                    }
+                    
+                    addDebugInfo(`Chunk ${i + 1} uploaded successfully`);
+                    
+                    // Small delay between chunks to avoid overwhelming the server
+                    if (i < chunks.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+                
+                // Step 3: Finalize upload
+                addDebugInfo('Finalizing chunked upload...');
+                const finalizeData = {
+                    action: 'finalizeChunkedUpload',
+                    uploadId: uploadId,
+                    filename: filename,
+                    type: type
+                };
+                
+                const finalizeResponse = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(finalizeData)
+                });
+                
+                if (!finalizeResponse.ok) {
+                    throw new Error(`Finalize failed: ${finalizeResponse.status}`);
+                }
+                
+                const finalResult = JSON.parse(await finalizeResponse.text());
+                addDebugInfo(`Chunked upload completed: ${finalResult.success}`);
+                
+                if (finalResult.success) {
+                    addDebugInfo(`File saved with ID: ${finalResult.fileId}`);
+                }
+                
+                return finalResult;
+                
+            } catch (error) {
+                addDebugInfo(`Chunked upload failed: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // Generate Work Order PDF
+        async function generateWorkOrderPDF(saveToGoogleDrive = false) {
+            try {
+                addDebugInfo('Starting Work Order PDF generation...');
+                
+                // Check if jsPDF is loaded
+                if (typeof window.jspdf === 'undefined') {
+                    throw new Error('jsPDF library not loaded');
+                }
+                
+                // Check if html2canvas is loaded
+                if (typeof html2canvas === 'undefined') {
+                    throw new Error('html2canvas library not loaded');
+                }
+                
+                const workOrderData = generateWorkOrderContent();
+                addDebugInfo(`Work Order data: ${JSON.stringify(workOrderData)}`);
+                
+                // Create a temporary container for the work order
+                const tempContainer = document.createElement('div');
+                tempContainer.style.position = 'absolute';
+                tempContainer.style.left = '-9999px';
+                tempContainer.style.width = '800px';
+                tempContainer.style.backgroundColor = 'white';
+                tempContainer.style.padding = '40px';
+                tempContainer.style.fontFamily = 'Arial, sans-serif';
+                
+                let itemsList = '';
+                workOrderData.items.forEach(item => {
+                    itemsList += `<tr style="border-bottom: 1px solid #ccc;">
+                        <td style="padding: 8px; text-align: left;">${item.product}</td>
+                        <td style="padding: 8px; text-align: center; font-weight: bold;">${item.quantity} cartons</td>
+                    </tr>`;
+                });
+                
+                tempContainer.innerHTML = `
+                    <div style="text-align: center; margin-bottom: 30px;">
+                        <h1 style="font-size: 24px; font-weight: bold; margin: 0;">PRODUCTION WORK ORDER</h1>
+                        <p style="color: #666; margin: 5px 0;">MYBEV SDN BHD</p>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                        <div>
+                            <p style="font-size: 14px; color: #666; margin: 0;">Work Order No:</p>
+                            <p style="font-weight: bold; margin: 5px 0;">${workOrderData.workOrderNumber}</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 14px; color: #666; margin: 0;">Date:</p>
+                            <p style="font-weight: bold; margin: 5px 0;">${workOrderData.date}</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 14px; color: #666; margin: 0;">Customer:</p>
+                            <p style="font-weight: bold; margin: 5px 0;">${workOrderData.customerName}</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 14px; color: #666; margin: 0;">Invoice No:</p>
+                            <p style="font-weight: bold; margin: 5px 0;">${workOrderData.invoiceNumber}</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 30px;">
+                        <h2 style="font-weight: bold; margin-bottom: 15px;">Production Requirements:</h2>
+                        <table style="width: 100%; border-collapse: collapse; border: 1px solid #000;">
+                            <thead style="background-color: #f5f5f5;">
+                                <tr>
+                                    <th style="padding: 8px; text-align: left; font-weight: bold; border: 1px solid #000;">Product</th>
+                                    <th style="padding: 8px; text-align: center; font-weight: bold; border: 1px solid #000;">Quantity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${itemsList}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 15px; margin-bottom: 20px;">
+                        <p style="color: #92400e; margin: 0;">
+                            <strong>URGENT:</strong> Please acknowledge receipt of this work order and provide delivery date.
+                        </p>
+                    </div>
+                    
+                    <div style="font-size: 14px; color: #666;">
+                        <p style="margin: 0; font-weight: bold;">Factory Response Required:</p>
+                        <p style="margin: 5px 0;">• Acknowledgment of order receipt</p>
+                        <p style="margin: 5px 0;">• Confirmed delivery date</p>
+                        <p style="margin: 5px 0;">• Any production concerns or delays</p>
+                    </div>
+                `;
+                
+                document.body.appendChild(tempContainer);
+                addDebugInfo('Temporary container added to DOM');
+                
+                // Generate canvas from the work order
+                addDebugInfo('Generating canvas from work order...');
+                const canvas = await html2canvas(tempContainer, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    logging: true
+                });
+                
+                addDebugInfo(`Work Order canvas generated: ${canvas.width}x${canvas.height}`);
+                
+                // Remove temporary container
+                document.body.removeChild(tempContainer);
+                addDebugInfo('Temporary container removed from DOM');
+                
+                // Create PDF
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                
+                // Calculate dimensions to fit A4
+                const imgWidth = 210; // A4 width in mm
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                addDebugInfo(`Work Order PDF dimensions: ${imgWidth}x${imgHeight}mm`);
+                
+                // Add image to PDF
+                const imgData = canvas.toDataURL('image/png');
+                pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+                
+                // Generate filename
+                const filename = `WorkOrder_${workOrderData.workOrderNumber}_${workOrderData.customerName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+                addDebugInfo(`Work Order filename: ${filename}`);
+                
+                if (saveToGoogleDrive) {
+                    // Get PDF as base64 for Google Drive upload
+                    const pdfBase64 = pdf.output('datauristring').split(',')[1];
+                    
+                    // Save to Google Drive
+                    addDebugInfo('Attempting to save Work Order PDF to Google Drive...');
+                    const driveResult = await savePDFToGoogleDrive(filename, pdfBase64, 'workorder');
+                    
+                    if (driveResult.success) {
+                        addDebugInfo(`Work Order PDF saved to Google Drive: ${driveResult.fileId}`);
+                        alert(`Work Order PDF saved to Google Drive successfully!\nFile ID: ${driveResult.fileId}`);
+                    } else {
+                        addDebugInfo(`Google Drive save failed: ${driveResult.error}`);
+                        alert(`Could not save to Google Drive: ${driveResult.error}\nDownloading locally instead.`);
+                        pdf.save(filename);
+                    }
+                } else {
+                    // Download PDF locally
+                    addDebugInfo('Downloading Work Order PDF locally...');
+                    pdf.save(filename);
+                    addDebugInfo('Work Order PDF download initiated');
+                }
+                
+                addDebugInfo('Work Order PDF generation completed successfully');
+                return { success: true, filename };
+                
+            } catch (error) {
+                addDebugInfo(`Work Order PDF generation error: ${error.message}`);
+                console.error('Error generating Work Order PDF:', error);
+                alert(`Error generating Work Order PDF: ${error.message}\n\nPlease check the debug info for more details.`);
+                
+                // Clean up temporary container if it exists
+                const tempContainer = document.querySelector('div[style*="position: absolute"][style*="left: -9999px"]');
+                if (tempContainer) {
+                    document.body.removeChild(tempContainer);
+                    addDebugInfo('Cleaned up temporary container after error');
+                }
+                
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Work Order Functions
+        function generateWorkOrderContent() {
+            const customerId = document.getElementById('customerSelect').value;
+            const customerName = customerId ? customers[customerId].name : '';
+            const invoiceNumber = document.getElementById('invoiceNumber').textContent;
+            const date = document.getElementById('invoiceDate').textContent;
+            
+            // Collect items
+            const items = [];
+            document.querySelectorAll('#invoiceItems tr').forEach(row => {
+                const productSelect = row.querySelector('.product-select');
+                const quantityInput = row.querySelector('.quantity-input');
+                
+                if (productSelect && productSelect.value) {
+                    items.push({
+                        product: products[productSelect.value],
+                        quantity: quantityInput.value
+                    });
+                }
+            });
+            
+            const workOrderNumber = `WO-${invoiceNumber.replace('INV-', '')}`;
+            
+            return {
+                workOrderNumber,
+                customerName,
+                invoiceNumber,
+                date,
+                items
+            };
+        }
+        
+        function displayWorkOrder(workOrderData) {
+            const content = document.getElementById('workOrderContent');
+            
+            let itemsList = '';
+            workOrderData.items.forEach(item => {
+                itemsList += `<tr class="border-b border-gray-200">
+                    <td class="py-2 px-3 text-left">${item.product}</td>
+                    <td class="py-2 px-3 text-center font-semibold">${item.quantity} cartons</td>
+                </tr>`;
+            });
+            
+            content.innerHTML = `
+                <div class="text-center mb-6">
+                    <h3 class="text-xl font-bold text-gray-900">PRODUCTION WORK ORDER</h3>
+                    <p class="text-gray-600 mt-1">MYBEV SDN BHD</p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <p class="text-sm text-gray-600">Work Order No:</p>
+                        <p class="font-semibold">${workOrderData.workOrderNumber}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">Date:</p>
+                        <p class="font-semibold">${workOrderData.date}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">Customer:</p>
+                        <p class="font-semibold">${workOrderData.customerName}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">Invoice No:</p>
+                        <p class="font-semibold">${workOrderData.invoiceNumber}</p>
+                    </div>
+                </div>
+                
+                <div class="mb-6">
+                    <h4 class="font-semibold text-gray-900 mb-3">Production Requirements:</h4>
+                    <table class="w-full border border-gray-300">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="py-2 px-3 text-left font-semibold">Product</th>
+                                <th class="py-2 px-3 text-center font-semibold">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemsList}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="bg-yellow-50 border border-yellow-200 rounded p-4 mb-4">
+                    <p class="text-sm text-yellow-800">
+                        <strong>URGENT:</strong> Please acknowledge receipt of this work order and provide delivery date.
+                    </p>
+                </div>
+                
+                <div class="text-sm text-gray-600">
+                    <p><strong>Factory Response Required:</strong></p>
+                    <p>• Acknowledgment of order receipt</p>
+                    <p>• Confirmed delivery date</p>
+                    <p>• Any production concerns or delays</p>
+                </div>
+            `;
+        }
+        
+        function getWorkOrderText(workOrderData) {
+            let itemsText = '';
+            workOrderData.items.forEach(item => {
+                itemsText += `• ${item.product}: ${item.quantity} cartons\n`;
+            });
+            
+            return `🏭 PRODUCTION WORK ORDER
+            
+Work Order No: ${workOrderData.workOrderNumber}
+Date: ${workOrderData.date}
+Customer: ${workOrderData.customerName}
+Invoice No: ${workOrderData.invoiceNumber}
+
+📦 PRODUCTION REQUIREMENTS:
+${itemsText}
+⚠️ URGENT: Please acknowledge receipt and provide delivery date.
+
+Factory Response Required:
+✅ Acknowledgment of order receipt
+📅 Confirmed delivery date
+⚠️ Any production concerns or delays
+
+Please reply with delivery confirmation.`;
+        }
+        
+        // Work Order Event Listeners
+        document.getElementById('generateWorkOrder').addEventListener('click', function() {
+            const workOrderData = generateWorkOrderContent();
+            displayWorkOrder(workOrderData);
+            document.getElementById('workOrderModal').classList.remove('hidden');
+        });
+        
+        document.getElementById('closeWorkOrderModal').addEventListener('click', function() {
+            document.getElementById('workOrderModal').classList.add('hidden');
+        });
+        
+        document.getElementById('emailWorkOrder').addEventListener('click', function() {
+            const workOrderData = generateWorkOrderContent();
+            const workOrderText = getWorkOrderText(workOrderData);
+            const subject = `Work Order ${workOrderData.workOrderNumber} - ${workOrderData.customerName}`;
+            const mailtoLink = `mailto:factorymybev@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(workOrderText)}`;
+            window.open(mailtoLink);
+        });
+        
+        document.getElementById('whatsappWorkOrder').addEventListener('click', function() {
+            const workOrderData = generateWorkOrderContent();
+            const workOrderText = getWorkOrderText(workOrderData);
+            
+            // Use only the working WhatsApp format
+            const phoneNumber = '601169918205';
+            const message = encodeURIComponent(workOrderText);
+            const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${message}`;
+            
+            addDebugInfo(`Using WhatsApp URL: ${whatsappUrl.substring(0, 50)}...`);
+            
+            try {
+                // Create a temporary link and click it
+                const tempLink = document.createElement('a');
+                tempLink.href = whatsappUrl;
+                tempLink.target = '_blank';
+                tempLink.rel = 'noopener noreferrer';
+                
+                // Add to DOM temporarily
+                document.body.appendChild(tempLink);
+                
+                // Click the link
+                tempLink.click();
+                
+                // Remove from DOM
+                document.body.removeChild(tempLink);
+                
+                addDebugInfo('WhatsApp link clicked successfully');
+                
+            } catch (error) {
+                addDebugInfo(`WhatsApp failed: ${error.message}`);
+                // Show fallback options
+                showWhatsAppFallback(whatsappUrl, workOrderText);
+            }
+        });
+        
+        function showWhatsAppFallback(whatsappLink, workOrderText) {
+            const fallbackModal = document.createElement('div');
+            fallbackModal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
+            
+            const modalContent = document.createElement('div');
+            modalContent.className = 'bg-white rounded-xl max-w-md w-full p-6';
+            
+            modalContent.innerHTML = `
+                <div class="text-center mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">WhatsApp Link Blocked</h3>
+                    <p class="text-sm text-gray-600 mt-2">Your browser is blocking the WhatsApp link. Please use one of these options:</p>
+                </div>
+                
+                <div class="space-y-3">
+                    <button id="copyLinkBtn" class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-colors">
+                        📋 Copy WhatsApp Link
+                    </button>
+                    
+                    <button id="copyTextBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-medium transition-colors">
+                        📝 Copy Work Order Text
+                    </button>
+                    
+                    <div class="text-xs text-gray-500 bg-gray-50 p-3 rounded">
+                        <p><strong>Manual Steps:</strong></p>
+                        <p>1. Copy the link or text above</p>
+                        <p>2. Open WhatsApp Web or your phone</p>
+                        <p>3. Send to: +60 11-6991 8205</p>
+                    </div>
+                    
+                    <button id="closeModalBtn" class="w-full bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors">
+                        Close
+                    </button>
+                </div>
+            `;
+            
+            fallbackModal.appendChild(modalContent);
+            document.body.appendChild(fallbackModal);
+            
+            // Add event listeners
+            modalContent.querySelector('#copyLinkBtn').addEventListener('click', async function() {
+                try {
+                    await navigator.clipboard.writeText(whatsappLink);
+                    this.textContent = '✅ Link Copied!';
+                    setTimeout(() => {
+                        this.textContent = '📋 Copy WhatsApp Link';
+                    }, 2000);
+                } catch (err) {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = whatsappLink;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    this.textContent = '✅ Link Copied!';
+                    setTimeout(() => {
+                        this.textContent = '📋 Copy WhatsApp Link';
+                    }, 2000);
+                }
+            });
+            
+            modalContent.querySelector('#copyTextBtn').addEventListener('click', async function() {
+                try {
+                    await navigator.clipboard.writeText(workOrderText);
+                    this.textContent = '✅ Text Copied!';
+                    setTimeout(() => {
+                        this.textContent = '📝 Copy Work Order Text';
+                    }, 2000);
+                } catch (err) {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = workOrderText;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    this.textContent = '✅ Text Copied!';
+                    setTimeout(() => {
+                        this.textContent = '📝 Copy Work Order Text';
+                    }, 2000);
+                }
+            });
+            
+            modalContent.querySelector('#closeModalBtn').addEventListener('click', function() {
+                fallbackModal.remove();
+            });
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Show success feedback
+                const buttons = document.querySelectorAll('.fixed button');
+                buttons.forEach(btn => {
+                    if (btn.textContent.includes('Copy')) {
+                        const originalText = btn.textContent;
+                        btn.textContent = '✅ Copied!';
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                        }, 2000);
+                    }
+                });
+            }).catch(() => {
+                alert('Could not copy automatically. Please copy manually.');
+            });
+        }
+        
+        document.getElementById('copyWorkOrder').addEventListener('click', async function() {
+            const workOrderData = generateWorkOrderContent();
+            const workOrderText = getWorkOrderText(workOrderData);
+            
+            try {
+                await navigator.clipboard.writeText(workOrderText);
+                const button = document.getElementById('copyWorkOrder');
+                const originalText = button.textContent;
+                button.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            } catch (err) {
+                alert('Could not copy to clipboard. Please copy manually.');
+            }
+        });
+        
+        document.getElementById('printWorkOrder').addEventListener('click', async function() {
+            await generateWorkOrderPDF(false);
+        });
+        
+        document.getElementById('saveWorkOrderToDrive').addEventListener('click', async function() {
+            await generateWorkOrderPDF(true);
+        });
+        
+        document.getElementById('updateFactoryResponse').addEventListener('click', function() {
+            const status = document.getElementById('factoryAck').value;
+            const deliveryDate = document.getElementById('deliveryDate').value;
+            const notes = document.getElementById('factoryNotes').value;
+            
+            // In a real system, this would update the database
+            alert(`Factory Response Updated:\nStatus: ${status}\nDelivery Date: ${deliveryDate}\nNotes: ${notes}`);
+        });
+
+        // New invoice
+        document.getElementById('newInvoice').addEventListener('click', function() {
+            // Don't increment here - only increment after saving
+            setCurrentDate();
+            
+            // Clear form
+            document.getElementById('customerSelect').value = '';
+            document.getElementById('customerDetails').classList.add('hidden');
+            document.getElementById('invoiceItems').innerHTML = '';
+            document.getElementById('deliveryCharges').value = '0';
+            
+            // Hide work order button
+            document.getElementById('generateWorkOrder').classList.add('hidden');
+            
+            // Reset totals
+            document.getElementById('subtotal').textContent = 'RM 0.00';
+            document.getElementById('tax').textContent = 'RM 0.00';
+            document.getElementById('total').textContent = 'RM 0.00';
+            updateDeliveryDisplay();
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97fd3d0da66f13db',t:'MTc1Nzk5MjkzNy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
